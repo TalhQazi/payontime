@@ -67,7 +67,7 @@ export function createApp(): Application {
     res.status(200).json({
       name: 'TheyPayOnTime API',
       status: 'ONLINE',
-      version: '1.0.0',
+      version: '1.0.1',
       documentation: '/api-docs',
       health: '/health',
       timestamp: new Date().toISOString(),
@@ -96,7 +96,7 @@ export function createApp(): Application {
       status: 'UP',
       timestamp: new Date().toISOString(),
       service: 'TheyPayOnTime-Backend',
-      version: '1.0.0',
+      version: '1.0.1',
       database: dbStatusMap[dbState] || 'UNKNOWN',
       complianceGate: {
         liveConsumerReportingEnabled: env.ENABLE_LIVE_CONSUMER_REPORTING,

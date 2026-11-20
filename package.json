@@ -1,6 +1,6 @@
 {
   "name": "theypayontime-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Production REST API backend for TheyPayOnTime.com",
   "main": "dist/server.js",
   "scripts": {
