@@ -2,7 +2,7 @@
   "name": "theypayontime-backend",
   "version": "1.0.1",
   "description": "Production REST API backend for TheyPayOnTime.com",
-  "main": "dist/server.js",
+  "main": "api/index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc && esbuild src/serverless.ts --bundle --platform=node --packages=external --format=cjs --footer:js=\"module.exports = app; module.exports.default = app;\" --outfile=api/index.js",

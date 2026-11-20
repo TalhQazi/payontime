@@ -5,6 +5,9 @@ import { logger } from '../utils/logger.js';
 let isConnected = false;
 let supportsTransactions = false;
 
+// Disable command buffering so disconnected operations fail immediately instead of hanging serverless functions
+mongoose.set('bufferCommands', false);
+
 export async function connectDatabase(uri?: string): Promise<typeof mongoose> {
   // If already connected, reuse existing connection (crucial for serverless warm starts)
   if (mongoose.connection.readyState === 1) {
@@ -12,11 +15,11 @@ export async function connectDatabase(uri?: string): Promise<typeof mongoose> {
     return mongoose;
   }
 
-  // If currently connecting, await completion
+  // If currently connecting, await completion with a short timeout
   if (mongoose.connection.readyState === 2) {
     await new Promise((resolve) => {
       mongoose.connection.once('connected', resolve);
-      setTimeout(resolve, 3000);
+      setTimeout(resolve, 2000);
     });
     if ((mongoose.connection.readyState as number) === 1) {
       isConnected = true;
@@ -27,8 +30,9 @@ export async function connectDatabase(uri?: string): Promise<typeof mongoose> {
   const connectionUri = uri || env.MONGODB_URI;
   try {
     const conn = await mongoose.connect(connectionUri, {
-      autoIndex: true,
-      serverSelectionTimeoutMS: 5000,
+      autoIndex: env.NODE_ENV === 'development', // Never run autoIndex on every connection in serverless/production
+      serverSelectionTimeoutMS: 3000,
+      connectTimeoutMS: 3000,
     });
     isConnected = true;
 

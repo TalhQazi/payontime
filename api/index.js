@@ -34,6 +34,7 @@ __export(serverless_exports, {
 });
 module.exports = __toCommonJS(serverless_exports);
 var import_express14 = __toESM(require("express"));
+var import_mongoose34 = __toESM(require("mongoose"));
 
 // src/app.ts
 var import_express13 = __toESM(require("express"));
@@ -1644,6 +1645,7 @@ var SyncOperation = import_mongoose19.default.model(
 var import_mongoose20 = __toESM(require("mongoose"));
 var isConnected = false;
 var supportsTransactions = false;
+import_mongoose20.default.set("bufferCommands", false);
 async function connectDatabase(uri) {
   if (import_mongoose20.default.connection.readyState === 1) {
     isConnected = true;
@@ -1652,7 +1654,7 @@ async function connectDatabase(uri) {
   if (import_mongoose20.default.connection.readyState === 2) {
     await new Promise((resolve) => {
       import_mongoose20.default.connection.once("connected", resolve);
-      setTimeout(resolve, 3e3);
+      setTimeout(resolve, 2e3);
     });
     if (import_mongoose20.default.connection.readyState === 1) {
       isConnected = true;
@@ -1662,8 +1664,10 @@ async function connectDatabase(uri) {
   const connectionUri = uri || env.MONGODB_URI;
   try {
     const conn = await import_mongoose20.default.connect(connectionUri, {
-      autoIndex: true,
-      serverSelectionTimeoutMS: 5e3
+      autoIndex: env.NODE_ENV === "development",
+      // Never run autoIndex on every connection in serverless/production
+      serverSelectionTimeoutMS: 3e3,
+      connectTimeoutMS: 3e3
     });
     isConnected = true;
     try {
@@ -4803,19 +4807,42 @@ function createApp() {
 // src/serverless.ts
 var baseApp = createApp();
 var app = (0, import_express14.default)();
-app.use(async (_req, _res, next) => {
-  try {
-    await connectDatabase();
-  } catch (error) {
-    logger.error({ error: error?.message || error }, "MongoDB connection error in serverless request");
-  }
-  next();
-});
+var isConnecting = false;
+function triggerBackgroundConnection() {
+  if (import_mongoose34.default.connection.readyState === 1 || isConnecting) return;
+  isConnecting = true;
+  connectDatabase().then(() => {
+    isConnecting = false;
+  }).catch((error) => {
+    isConnecting = false;
+    logger.warn({ error: error?.message || error }, "Background MongoDB connection attempt failed");
+  });
+}
 app.use((req, _res, next) => {
-  if (req.url === "/api/index" || req.url === "/api") {
+  const matchedPath = req.headers["x-matched-path"];
+  if (matchedPath) {
+    req.url = matchedPath;
+  } else if (req.url === "/api/index" || req.url === "/api" || req.url === "/api/index.js") {
     req.url = "/";
   } else if (req.url.startsWith("/api/index/")) {
     req.url = req.url.replace("/api/index", "");
+  }
+  triggerBackgroundConnection();
+  next();
+});
+app.use("/api/v1", async (_req, res, next) => {
+  if (import_mongoose34.default.connection.readyState !== 1) {
+    try {
+      await connectDatabase();
+    } catch {
+      return res.status(503).json({
+        error: {
+          code: "DATABASE_UNAVAILABLE",
+          message: "MongoDB is currently unreachable. Please verify MONGODB_URI in Vercel and MongoDB Atlas Network Access (allow 0.0.0.0/0).",
+          databaseState: import_mongoose34.default.connection.readyState
+        }
+      });
+    }
   }
   next();
 });
