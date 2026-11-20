@@ -1,10 +1,12 @@
-import express, { Application, Request, Response } from 'express';
+import express, { Application, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import swaggerUi from 'swagger-ui-express';
 import { env } from './config/env.js';
 import { openApiSpec } from './config/openapi.js';
+import { connectDatabase } from './database/connection.js';
+import { logger } from './utils/logger.js';
 import { correlationIdMiddleware } from './middleware/correlationId.js';
 import { globalRateLimiter } from './middleware/rateLimiter.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -22,6 +24,21 @@ import { notificationRouter } from './routes/notificationRoutes.js';
 import { deviceRouter } from './routes/deviceRoutes.js';
 import { syncRouter } from './routes/syncRoutes.js';
 import { customerPortalRouter } from './routes/customerPortalRoutes.js';
+
+// Non-blocking connection initiator for serverless environments
+let isConnecting = false;
+function triggerBackgroundConnection() {
+  if (mongoose.connection.readyState === 1 || isConnecting) return;
+  isConnecting = true;
+  connectDatabase()
+    .then(() => {
+      isConnecting = false;
+    })
+    .catch((error: any) => {
+      isConnecting = false;
+      logger.warn({ error: error?.message || error }, 'Background MongoDB connection attempt failed');
+    });
+}
 
 export function createApp(): Application {
   const app: Application = express();
@@ -61,6 +78,18 @@ export function createApp(): Application {
 
   // Correlation ID Tracking
   app.use(correlationIdMiddleware);
+
+  // Vercel serverless helper: support x-matched-path & background DB connect
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const matchedPath = req.headers['x-matched-path'] as string | undefined;
+    if (matchedPath) {
+      req.url = matchedPath;
+    }
+    if (process.env.VERCEL) {
+      triggerBackgroundConnection();
+    }
+    next();
+  });
 
   // Root welcome endpoint
   app.get('/', (_req: Request, res: Response) => {
@@ -126,3 +155,9 @@ export function createApp(): Application {
 
   return app;
 }
+
+// CRITICAL FOR VERCEL: Export default Express application instance
+const defaultApp = createApp();
+(defaultApp as any).default = defaultApp;
+(defaultApp as any).createApp = createApp;
+export default defaultApp;

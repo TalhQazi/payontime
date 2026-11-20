@@ -282,6 +282,102 @@ var openApiSpec = {
   }
 };
 
+// src/database/connection.ts
+var import_mongoose = __toESM(require("mongoose"));
+
+// src/utils/logger.ts
+var import_pino = __toESM(require("pino"));
+var logger = (0, import_pino.default)({
+  level: env.NODE_ENV === "test" ? "silent" : "info",
+  redact: {
+    paths: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      "*.password",
+      "*.passwordHash",
+      "*.token",
+      "*.refreshToken",
+      "*.mfaSecret",
+      "*.taxId",
+      "*.ssn",
+      "body.password",
+      "body.token",
+      "body.refreshToken",
+      "body.mfaCode"
+    ],
+    censor: "[REDACTED]"
+  },
+  timestamp: import_pino.default.stdTimeFunctions.isoTime
+});
+
+// src/database/connection.ts
+var isConnected = false;
+var supportsTransactions = false;
+import_mongoose.default.set("bufferCommands", false);
+async function connectDatabase(uri) {
+  if (import_mongoose.default.connection.readyState === 1) {
+    isConnected = true;
+    return import_mongoose.default;
+  }
+  if (import_mongoose.default.connection.readyState === 2) {
+    await new Promise((resolve) => {
+      import_mongoose.default.connection.once("connected", resolve);
+      setTimeout(resolve, 2e3);
+    });
+    if (import_mongoose.default.connection.readyState === 1) {
+      isConnected = true;
+      return import_mongoose.default;
+    }
+  }
+  const connectionUri = uri || env.MONGODB_URI;
+  try {
+    const conn = await import_mongoose.default.connect(connectionUri, {
+      autoIndex: env.NODE_ENV === "development",
+      // Never run autoIndex on every connection in serverless/production
+      serverSelectionTimeoutMS: 3e3,
+      connectTimeoutMS: 3e3
+    });
+    isConnected = true;
+    try {
+      const adminDb = import_mongoose.default.connection.db?.admin();
+      const helloResult = await adminDb?.command({ hello: 1 });
+      supportsTransactions = Boolean(helloResult?.setName || helloResult?.msg === "isdbgrid");
+      logger.info({ supportsTransactions }, "MongoDB connection established");
+    } catch {
+      supportsTransactions = false;
+    }
+    return conn;
+  } catch (error) {
+    logger.error({ error }, "Failed to connect to MongoDB");
+    throw error;
+  }
+}
+function hasTransactionSupport() {
+  return supportsTransactions && env.MONGODB_USE_TRANSACTIONS;
+}
+async function withTransaction(fn) {
+  if (!hasTransactionSupport()) {
+    const session2 = await import_mongoose.default.startSession();
+    try {
+      return await fn(session2);
+    } finally {
+      await session2.endSession();
+    }
+  }
+  const session = await import_mongoose.default.startSession();
+  session.startTransaction();
+  try {
+    const result = await fn(session);
+    await session.commitTransaction();
+    return result;
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+}
+
 // src/middleware/correlationId.ts
 var import_uuid = require("uuid");
 function correlationIdMiddleware(req, res, next) {
@@ -322,33 +418,6 @@ var authRateLimiter = (0, import_express_rate_limit.default)({
 
 // src/middleware/errorHandler.ts
 var import_zod2 = require("zod");
-
-// src/utils/logger.ts
-var import_pino = __toESM(require("pino"));
-var logger = (0, import_pino.default)({
-  level: env.NODE_ENV === "test" ? "silent" : "info",
-  redact: {
-    paths: [
-      "req.headers.authorization",
-      "req.headers.cookie",
-      "*.password",
-      "*.passwordHash",
-      "*.token",
-      "*.refreshToken",
-      "*.mfaSecret",
-      "*.taxId",
-      "*.ssn",
-      "body.password",
-      "body.token",
-      "body.refreshToken",
-      "body.mfaCode"
-    ],
-    censor: "[REDACTED]"
-  },
-  timestamp: import_pino.default.stdTimeFunctions.isoTime
-});
-
-// src/middleware/errorHandler.ts
 var AppError = class extends Error {
   statusCode;
   code;
@@ -430,8 +499,8 @@ var import_crypto = __toESM(require("crypto"));
 var import_mongoose21 = require("mongoose");
 
 // src/models/User.ts
-var import_mongoose = __toESM(require("mongoose"));
-var UserSchema = new import_mongoose.Schema(
+var import_mongoose2 = __toESM(require("mongoose"));
+var UserSchema = new import_mongoose2.Schema(
   {
     email: {
       type: String,
@@ -470,7 +539,7 @@ var UserSchema = new import_mongoose.Schema(
       index: true
     },
     currentOrganizationId: {
-      type: import_mongoose.Schema.Types.ObjectId,
+      type: import_mongoose2.Schema.Types.ObjectId,
       ref: "Organization",
       index: true
     },
@@ -512,11 +581,11 @@ var UserSchema = new import_mongoose.Schema(
     timestamps: true
   }
 );
-var User = import_mongoose.default.model("User", UserSchema);
+var User = import_mongoose2.default.model("User", UserSchema);
 
 // src/models/Organization.ts
-var import_mongoose2 = __toESM(require("mongoose"));
-var OrganizationSchema = new import_mongoose2.Schema(
+var import_mongoose3 = __toESM(require("mongoose"));
+var OrganizationSchema = new import_mongoose3.Schema(
   {
     name: {
       type: String,
@@ -567,7 +636,7 @@ var OrganizationSchema = new import_mongoose2.Schema(
       index: true
     },
     ownerId: {
-      type: import_mongoose2.Schema.Types.ObjectId,
+      type: import_mongoose3.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -582,20 +651,20 @@ var OrganizationSchema = new import_mongoose2.Schema(
     timestamps: true
   }
 );
-var Organization = import_mongoose2.default.model("Organization", OrganizationSchema);
+var Organization = import_mongoose3.default.model("Organization", OrganizationSchema);
 
 // src/models/OrganizationMember.ts
-var import_mongoose3 = __toESM(require("mongoose"));
-var OrganizationMemberSchema = new import_mongoose3.Schema(
+var import_mongoose4 = __toESM(require("mongoose"));
+var OrganizationMemberSchema = new import_mongoose4.Schema(
   {
     organizationId: {
-      type: import_mongoose3.Schema.Types.ObjectId,
+      type: import_mongoose4.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     userId: {
-      type: import_mongoose3.Schema.Types.ObjectId,
+      type: import_mongoose4.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -616,7 +685,7 @@ var OrganizationMemberSchema = new import_mongoose3.Schema(
       index: true
     },
     invitedBy: {
-      type: import_mongoose3.Schema.Types.ObjectId,
+      type: import_mongoose4.Schema.Types.ObjectId,
       ref: "User"
     },
     joinedAt: {
@@ -629,14 +698,14 @@ var OrganizationMemberSchema = new import_mongoose3.Schema(
   }
 );
 OrganizationMemberSchema.index({ organizationId: 1, userId: 1 }, { unique: true });
-var OrganizationMember = import_mongoose3.default.model(
+var OrganizationMember = import_mongoose4.default.model(
   "OrganizationMember",
   OrganizationMemberSchema
 );
 
 // src/models/BusinessVerification.ts
-var import_mongoose4 = __toESM(require("mongoose"));
-var VerificationDocumentSchema = new import_mongoose4.Schema({
+var import_mongoose5 = __toESM(require("mongoose"));
+var VerificationDocumentSchema = new import_mongoose5.Schema({
   docType: {
     type: String,
     enum: [
@@ -650,7 +719,7 @@ var VerificationDocumentSchema = new import_mongoose4.Schema({
     required: true
   },
   evidenceId: {
-    type: import_mongoose4.Schema.Types.ObjectId,
+    type: import_mongoose5.Schema.Types.ObjectId,
     ref: "Evidence",
     required: true
   },
@@ -661,16 +730,16 @@ var VerificationDocumentSchema = new import_mongoose4.Schema({
   },
   notes: { type: String }
 });
-var BusinessVerificationSchema = new import_mongoose4.Schema(
+var BusinessVerificationSchema = new import_mongoose5.Schema(
   {
     organizationId: {
-      type: import_mongoose4.Schema.Types.ObjectId,
+      type: import_mongoose5.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     submittedByUserId: {
-      type: import_mongoose4.Schema.Types.ObjectId,
+      type: import_mongoose5.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -684,24 +753,24 @@ var BusinessVerificationSchema = new import_mongoose4.Schema(
     },
     reviewNotes: { type: String },
     verifiedAt: { type: Date },
-    reviewedBy: { type: import_mongoose4.Schema.Types.ObjectId, ref: "User" },
+    reviewedBy: { type: import_mongoose5.Schema.Types.ObjectId, ref: "User" },
     rejectionReason: { type: String }
   },
   {
     timestamps: true
   }
 );
-var BusinessVerification = import_mongoose4.default.model(
+var BusinessVerification = import_mongoose5.default.model(
   "BusinessVerification",
   BusinessVerificationSchema
 );
 
 // src/models/Subscription.ts
-var import_mongoose5 = __toESM(require("mongoose"));
-var SubscriptionSchema = new import_mongoose5.Schema(
+var import_mongoose6 = __toESM(require("mongoose"));
+var SubscriptionSchema = new import_mongoose6.Schema(
   {
     organizationId: {
-      type: import_mongoose5.Schema.Types.ObjectId,
+      type: import_mongoose6.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       unique: true,
@@ -745,11 +814,11 @@ var SubscriptionSchema = new import_mongoose5.Schema(
     timestamps: true
   }
 );
-var Subscription = import_mongoose5.default.model("Subscription", SubscriptionSchema);
+var Subscription = import_mongoose6.default.model("Subscription", SubscriptionSchema);
 
 // src/models/CustomerRecord.ts
-var import_mongoose6 = __toESM(require("mongoose"));
-var CustomerRecordSchema = new import_mongoose6.Schema(
+var import_mongoose7 = __toESM(require("mongoose"));
+var CustomerRecordSchema = new import_mongoose7.Schema(
   {
     firstName: { type: String, trim: true },
     lastName: { type: String, trim: true, index: true },
@@ -776,23 +845,23 @@ var CustomerRecordSchema = new import_mongoose6.Schema(
 );
 CustomerRecordSchema.index({ lastName: 1, postalCode: 1 });
 CustomerRecordSchema.index({ companyName: 1, postalCode: 1 });
-var CustomerRecord = import_mongoose6.default.model(
+var CustomerRecord = import_mongoose7.default.model(
   "CustomerRecord",
   CustomerRecordSchema
 );
 
 // src/models/CustomerSearch.ts
-var import_mongoose7 = __toESM(require("mongoose"));
-var CustomerSearchSchema = new import_mongoose7.Schema(
+var import_mongoose8 = __toESM(require("mongoose"));
+var CustomerSearchSchema = new import_mongoose8.Schema(
   {
     organizationId: {
-      type: import_mongoose7.Schema.Types.ObjectId,
+      type: import_mongoose8.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     userId: {
-      type: import_mongoose7.Schema.Types.ObjectId,
+      type: import_mongoose8.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -835,7 +904,7 @@ var CustomerSearchSchema = new import_mongoose7.Schema(
     },
     matchedCustomerIds: [
       {
-        type: import_mongoose7.Schema.Types.ObjectId,
+        type: import_mongoose8.Schema.Types.ObjectId,
         ref: "CustomerRecord"
       }
     ],
@@ -847,23 +916,23 @@ var CustomerSearchSchema = new import_mongoose7.Schema(
   }
 );
 CustomerSearchSchema.index({ organizationId: 1, createdAt: -1 });
-var CustomerSearch = import_mongoose7.default.model(
+var CustomerSearch = import_mongoose8.default.model(
   "CustomerSearch",
   CustomerSearchSchema
 );
 
 // src/models/Invoice.ts
-var import_mongoose8 = __toESM(require("mongoose"));
-var InvoiceSchema = new import_mongoose8.Schema(
+var import_mongoose9 = __toESM(require("mongoose"));
+var InvoiceSchema = new import_mongoose9.Schema(
   {
     organizationId: {
-      type: import_mongoose8.Schema.Types.ObjectId,
+      type: import_mongoose9.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     customerRecordId: {
-      type: import_mongoose8.Schema.Types.ObjectId,
+      type: import_mongoose9.Schema.Types.ObjectId,
       ref: "CustomerRecord",
       required: true,
       index: true
@@ -935,13 +1004,13 @@ var InvoiceSchema = new import_mongoose8.Schema(
     },
     evidenceIds: [
       {
-        type: import_mongoose8.Schema.Types.ObjectId,
+        type: import_mongoose9.Schema.Types.ObjectId,
         ref: "Evidence"
       }
     ],
     attestation: {
       signedByUserId: {
-        type: import_mongoose8.Schema.Types.ObjectId,
+        type: import_mongoose9.Schema.Types.ObjectId,
         ref: "User",
         required: true
       },
@@ -966,26 +1035,26 @@ var InvoiceSchema = new import_mongoose8.Schema(
 );
 InvoiceSchema.index({ organizationId: 1, invoiceNumber: 1 }, { unique: true });
 InvoiceSchema.index({ organizationId: 1, status: 1 });
-var Invoice = import_mongoose8.default.model("Invoice", InvoiceSchema);
+var Invoice = import_mongoose9.default.model("Invoice", InvoiceSchema);
 
 // src/models/PaymentEvent.ts
-var import_mongoose9 = __toESM(require("mongoose"));
-var PaymentEventSchema = new import_mongoose9.Schema(
+var import_mongoose10 = __toESM(require("mongoose"));
+var PaymentEventSchema = new import_mongoose10.Schema(
   {
     invoiceId: {
-      type: import_mongoose9.Schema.Types.ObjectId,
+      type: import_mongoose10.Schema.Types.ObjectId,
       ref: "Invoice",
       required: true,
       index: true
     },
     organizationId: {
-      type: import_mongoose9.Schema.Types.ObjectId,
+      type: import_mongoose10.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     customerRecordId: {
-      type: import_mongoose9.Schema.Types.ObjectId,
+      type: import_mongoose10.Schema.Types.ObjectId,
       ref: "CustomerRecord",
       required: true,
       index: true
@@ -1011,7 +1080,7 @@ var PaymentEventSchema = new import_mongoose9.Schema(
       required: true
     },
     supportingEvidenceId: {
-      type: import_mongoose9.Schema.Types.ObjectId,
+      type: import_mongoose10.Schema.Types.ObjectId,
       ref: "Evidence"
     },
     previousBalanceMinorUnits: {
@@ -1035,7 +1104,7 @@ var PaymentEventSchema = new import_mongoose9.Schema(
       trim: true
     },
     recordedByUserId: {
-      type: import_mongoose9.Schema.Types.ObjectId,
+      type: import_mongoose10.Schema.Types.ObjectId,
       ref: "User",
       required: true
     }
@@ -1045,26 +1114,26 @@ var PaymentEventSchema = new import_mongoose9.Schema(
   }
 );
 PaymentEventSchema.index({ invoiceId: 1, createdAt: 1 });
-var PaymentEvent = import_mongoose9.default.model("PaymentEvent", PaymentEventSchema);
+var PaymentEvent = import_mongoose10.default.model("PaymentEvent", PaymentEventSchema);
 
 // src/models/Report.ts
-var import_mongoose10 = __toESM(require("mongoose"));
-var ReportSchema = new import_mongoose10.Schema(
+var import_mongoose11 = __toESM(require("mongoose"));
+var ReportSchema = new import_mongoose11.Schema(
   {
     organizationId: {
-      type: import_mongoose10.Schema.Types.ObjectId,
+      type: import_mongoose11.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     invoiceId: {
-      type: import_mongoose10.Schema.Types.ObjectId,
+      type: import_mongoose11.Schema.Types.ObjectId,
       ref: "Invoice",
       required: true,
       index: true
     },
     customerRecordId: {
-      type: import_mongoose10.Schema.Types.ObjectId,
+      type: import_mongoose11.Schema.Types.ObjectId,
       ref: "CustomerRecord",
       required: true,
       index: true
@@ -1108,19 +1177,19 @@ var ReportSchema = new import_mongoose10.Schema(
   }
 );
 ReportSchema.index({ organizationId: 1, createdAt: -1 });
-var Report = import_mongoose10.default.model("Report", ReportSchema);
+var Report = import_mongoose11.default.model("Report", ReportSchema);
 
 // src/models/Evidence.ts
-var import_mongoose11 = __toESM(require("mongoose"));
-var EvidenceSchema = new import_mongoose11.Schema(
+var import_mongoose12 = __toESM(require("mongoose"));
+var EvidenceSchema = new import_mongoose12.Schema(
   {
     organizationId: {
-      type: import_mongoose11.Schema.Types.ObjectId,
+      type: import_mongoose12.Schema.Types.ObjectId,
       ref: "Organization",
       index: true
     },
     uploadedByUserId: {
-      type: import_mongoose11.Schema.Types.ObjectId,
+      type: import_mongoose12.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -1131,7 +1200,7 @@ var EvidenceSchema = new import_mongoose11.Schema(
       required: true
     },
     relatedEntityId: {
-      type: import_mongoose11.Schema.Types.ObjectId,
+      type: import_mongoose12.Schema.Types.ObjectId,
       index: true
     },
     originalFileName: {
@@ -1163,32 +1232,32 @@ var EvidenceSchema = new import_mongoose11.Schema(
     timestamps: true
   }
 );
-var Evidence = import_mongoose11.default.model("Evidence", EvidenceSchema);
+var Evidence = import_mongoose12.default.model("Evidence", EvidenceSchema);
 
 // src/models/Dispute.ts
-var import_mongoose12 = __toESM(require("mongoose"));
-var DisputeSchema = new import_mongoose12.Schema(
+var import_mongoose13 = __toESM(require("mongoose"));
+var DisputeSchema = new import_mongoose13.Schema(
   {
     customerRecordId: {
-      type: import_mongoose12.Schema.Types.ObjectId,
+      type: import_mongoose13.Schema.Types.ObjectId,
       ref: "CustomerRecord",
       required: true,
       index: true
     },
     invoiceId: {
-      type: import_mongoose12.Schema.Types.ObjectId,
+      type: import_mongoose13.Schema.Types.ObjectId,
       ref: "Invoice",
       required: true,
       index: true
     },
     organizationId: {
-      type: import_mongoose12.Schema.Types.ObjectId,
+      type: import_mongoose13.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     filedByCustomerUserId: {
-      type: import_mongoose12.Schema.Types.ObjectId,
+      type: import_mongoose13.Schema.Types.ObjectId,
       ref: "User",
       index: true
     },
@@ -1234,7 +1303,7 @@ var DisputeSchema = new import_mongoose12.Schema(
     },
     evidenceIds: [
       {
-        type: import_mongoose12.Schema.Types.ObjectId,
+        type: import_mongoose13.Schema.Types.ObjectId,
         ref: "Evidence"
       }
     ],
@@ -1245,7 +1314,7 @@ var DisputeSchema = new import_mongoose12.Schema(
       type: Date
     },
     decidedBy: {
-      type: import_mongoose12.Schema.Types.ObjectId,
+      type: import_mongoose13.Schema.Types.ObjectId,
       ref: "User"
     },
     appealDeadline: {
@@ -1264,26 +1333,26 @@ var DisputeSchema = new import_mongoose12.Schema(
   }
 );
 DisputeSchema.index({ organizationId: 1, status: 1 });
-var Dispute = import_mongoose12.default.model("Dispute", DisputeSchema);
+var Dispute = import_mongoose13.default.model("Dispute", DisputeSchema);
 
 // src/models/DisputeResponse.ts
-var import_mongoose13 = __toESM(require("mongoose"));
-var DisputeResponseSchema = new import_mongoose13.Schema(
+var import_mongoose14 = __toESM(require("mongoose"));
+var DisputeResponseSchema = new import_mongoose14.Schema(
   {
     disputeId: {
-      type: import_mongoose13.Schema.Types.ObjectId,
+      type: import_mongoose14.Schema.Types.ObjectId,
       ref: "Dispute",
       required: true,
       index: true
     },
     organizationId: {
-      type: import_mongoose13.Schema.Types.ObjectId,
+      type: import_mongoose14.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     respondedByUserId: {
-      type: import_mongoose13.Schema.Types.ObjectId,
+      type: import_mongoose14.Schema.Types.ObjectId,
       ref: "User",
       required: true
     },
@@ -1294,7 +1363,7 @@ var DisputeResponseSchema = new import_mongoose13.Schema(
     },
     evidenceIds: [
       {
-        type: import_mongoose13.Schema.Types.ObjectId,
+        type: import_mongoose14.Schema.Types.ObjectId,
         ref: "Evidence"
       }
     ],
@@ -1312,22 +1381,22 @@ var DisputeResponseSchema = new import_mongoose13.Schema(
     timestamps: { createdAt: true, updatedAt: false }
   }
 );
-var DisputeResponse = import_mongoose13.default.model(
+var DisputeResponse = import_mongoose14.default.model(
   "DisputeResponse",
   DisputeResponseSchema
 );
 
 // src/models/Notification.ts
-var import_mongoose14 = __toESM(require("mongoose"));
-var NotificationSchema = new import_mongoose14.Schema(
+var import_mongoose15 = __toESM(require("mongoose"));
+var NotificationSchema = new import_mongoose15.Schema(
   {
     userId: {
-      type: import_mongoose14.Schema.Types.ObjectId,
+      type: import_mongoose15.Schema.Types.ObjectId,
       ref: "User",
       index: true
     },
     organizationId: {
-      type: import_mongoose14.Schema.Types.ObjectId,
+      type: import_mongoose15.Schema.Types.ObjectId,
       ref: "Organization",
       index: true
     },
@@ -1373,20 +1442,20 @@ var NotificationSchema = new import_mongoose14.Schema(
   }
 );
 NotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
-var Notification = import_mongoose14.default.model("Notification", NotificationSchema);
+var Notification = import_mongoose15.default.model("Notification", NotificationSchema);
 
 // src/models/RegisteredDevice.ts
-var import_mongoose15 = __toESM(require("mongoose"));
-var RegisteredDeviceSchema = new import_mongoose15.Schema(
+var import_mongoose16 = __toESM(require("mongoose"));
+var RegisteredDeviceSchema = new import_mongoose16.Schema(
   {
     userId: {
-      type: import_mongoose15.Schema.Types.ObjectId,
+      type: import_mongoose16.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
     },
     organizationId: {
-      type: import_mongoose15.Schema.Types.ObjectId,
+      type: import_mongoose16.Schema.Types.ObjectId,
       ref: "Organization",
       index: true
     },
@@ -1432,22 +1501,22 @@ var RegisteredDeviceSchema = new import_mongoose15.Schema(
   }
 );
 RegisteredDeviceSchema.index({ userId: 1, isRevoked: 1 });
-var RegisteredDevice = import_mongoose15.default.model(
+var RegisteredDevice = import_mongoose16.default.model(
   "RegisteredDevice",
   RegisteredDeviceSchema
 );
 
 // src/models/AuditLog.ts
-var import_mongoose16 = __toESM(require("mongoose"));
-var AuditLogSchema = new import_mongoose16.Schema(
+var import_mongoose17 = __toESM(require("mongoose"));
+var AuditLogSchema = new import_mongoose17.Schema(
   {
     organizationId: {
-      type: import_mongoose16.Schema.Types.ObjectId,
+      type: import_mongoose17.Schema.Types.ObjectId,
       ref: "Organization",
       index: true
     },
     userId: {
-      type: import_mongoose16.Schema.Types.ObjectId,
+      type: import_mongoose17.Schema.Types.ObjectId,
       ref: "User",
       index: true
     },
@@ -1471,7 +1540,7 @@ var AuditLogSchema = new import_mongoose16.Schema(
       type: String
     },
     details: {
-      type: import_mongoose16.Schema.Types.Mixed
+      type: import_mongoose17.Schema.Types.Mixed
     }
   },
   {
@@ -1479,11 +1548,11 @@ var AuditLogSchema = new import_mongoose16.Schema(
   }
 );
 AuditLogSchema.index({ organizationId: 1, createdAt: -1 });
-var AuditLog = import_mongoose16.default.model("AuditLog", AuditLogSchema);
+var AuditLog = import_mongoose17.default.model("AuditLog", AuditLogSchema);
 
 // src/models/IdempotencyRecord.ts
-var import_mongoose17 = __toESM(require("mongoose"));
-var IdempotencyRecordSchema = new import_mongoose17.Schema(
+var import_mongoose18 = __toESM(require("mongoose"));
+var IdempotencyRecordSchema = new import_mongoose18.Schema(
   {
     key: {
       type: String,
@@ -1492,7 +1561,7 @@ var IdempotencyRecordSchema = new import_mongoose17.Schema(
       index: true
     },
     organizationId: {
-      type: import_mongoose17.Schema.Types.ObjectId,
+      type: import_mongoose18.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
@@ -1514,7 +1583,7 @@ var IdempotencyRecordSchema = new import_mongoose17.Schema(
       type: Number
     },
     responseBody: {
-      type: import_mongoose17.Schema.Types.Mixed
+      type: import_mongoose18.Schema.Types.Mixed
     },
     expiresAt: {
       type: Date,
@@ -1527,14 +1596,14 @@ var IdempotencyRecordSchema = new import_mongoose17.Schema(
     timestamps: { createdAt: true, updatedAt: false }
   }
 );
-var IdempotencyRecord = import_mongoose17.default.model(
+var IdempotencyRecord = import_mongoose18.default.model(
   "IdempotencyRecord",
   IdempotencyRecordSchema
 );
 
 // src/models/RefreshToken.ts
-var import_mongoose18 = __toESM(require("mongoose"));
-var RefreshTokenSchema = new import_mongoose18.Schema(
+var import_mongoose19 = __toESM(require("mongoose"));
+var RefreshTokenSchema = new import_mongoose19.Schema(
   {
     tokenHash: {
       type: String,
@@ -1543,7 +1612,7 @@ var RefreshTokenSchema = new import_mongoose18.Schema(
       index: true
     },
     userId: {
-      type: import_mongoose18.Schema.Types.ObjectId,
+      type: import_mongoose19.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -1574,11 +1643,11 @@ var RefreshTokenSchema = new import_mongoose18.Schema(
   }
 );
 RefreshTokenSchema.index({ userId: 1, isRevoked: 1 });
-var RefreshToken = import_mongoose18.default.model("RefreshToken", RefreshTokenSchema);
+var RefreshToken = import_mongoose19.default.model("RefreshToken", RefreshTokenSchema);
 
 // src/models/SyncOperation.ts
-var import_mongoose19 = __toESM(require("mongoose"));
-var SyncOperationSchema = new import_mongoose19.Schema(
+var import_mongoose20 = __toESM(require("mongoose"));
+var SyncOperationSchema = new import_mongoose20.Schema(
   {
     clientUuid: {
       type: String,
@@ -1591,13 +1660,13 @@ var SyncOperationSchema = new import_mongoose19.Schema(
       required: true
     },
     organizationId: {
-      type: import_mongoose19.Schema.Types.ObjectId,
+      type: import_mongoose20.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true
     },
     userId: {
-      type: import_mongoose19.Schema.Types.ObjectId,
+      type: import_mongoose20.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
@@ -1608,7 +1677,7 @@ var SyncOperationSchema = new import_mongoose19.Schema(
       required: true
     },
     payload: {
-      type: import_mongoose19.Schema.Types.Mixed,
+      type: import_mongoose20.Schema.Types.Mixed,
       required: true
     },
     status: {
@@ -1636,79 +1705,10 @@ var SyncOperationSchema = new import_mongoose19.Schema(
     timestamps: { createdAt: true, updatedAt: false }
   }
 );
-var SyncOperation = import_mongoose19.default.model(
+var SyncOperation = import_mongoose20.default.model(
   "SyncOperation",
   SyncOperationSchema
 );
-
-// src/database/connection.ts
-var import_mongoose20 = __toESM(require("mongoose"));
-var isConnected = false;
-var supportsTransactions = false;
-import_mongoose20.default.set("bufferCommands", false);
-async function connectDatabase(uri) {
-  if (import_mongoose20.default.connection.readyState === 1) {
-    isConnected = true;
-    return import_mongoose20.default;
-  }
-  if (import_mongoose20.default.connection.readyState === 2) {
-    await new Promise((resolve) => {
-      import_mongoose20.default.connection.once("connected", resolve);
-      setTimeout(resolve, 2e3);
-    });
-    if (import_mongoose20.default.connection.readyState === 1) {
-      isConnected = true;
-      return import_mongoose20.default;
-    }
-  }
-  const connectionUri = uri || env.MONGODB_URI;
-  try {
-    const conn = await import_mongoose20.default.connect(connectionUri, {
-      autoIndex: env.NODE_ENV === "development",
-      // Never run autoIndex on every connection in serverless/production
-      serverSelectionTimeoutMS: 3e3,
-      connectTimeoutMS: 3e3
-    });
-    isConnected = true;
-    try {
-      const adminDb = import_mongoose20.default.connection.db?.admin();
-      const helloResult = await adminDb?.command({ hello: 1 });
-      supportsTransactions = Boolean(helloResult?.setName || helloResult?.msg === "isdbgrid");
-      logger.info({ supportsTransactions }, "MongoDB connection established");
-    } catch {
-      supportsTransactions = false;
-    }
-    return conn;
-  } catch (error) {
-    logger.error({ error }, "Failed to connect to MongoDB");
-    throw error;
-  }
-}
-function hasTransactionSupport() {
-  return supportsTransactions && env.MONGODB_USE_TRANSACTIONS;
-}
-async function withTransaction(fn) {
-  if (!hasTransactionSupport()) {
-    const session2 = await import_mongoose20.default.startSession();
-    try {
-      return await fn(session2);
-    } finally {
-      await session2.endSession();
-    }
-  }
-  const session = await import_mongoose20.default.startSession();
-  session.startTransaction();
-  try {
-    const result = await fn(session);
-    await session.commitTransaction();
-    return result;
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    await session.endSession();
-  }
-}
 
 // src/services/authService.ts
 var AuthService = class {
@@ -4723,6 +4723,17 @@ customerPortalRouter.get(
 );
 
 // src/app.ts
+var isConnecting = false;
+function triggerBackgroundConnection() {
+  if (import_mongoose33.default.connection.readyState === 1 || isConnecting) return;
+  isConnecting = true;
+  connectDatabase().then(() => {
+    isConnecting = false;
+  }).catch((error) => {
+    isConnecting = false;
+    logger.warn({ error: error?.message || error }, "Background MongoDB connection attempt failed");
+  });
+}
 function createApp() {
   const app2 = (0, import_express13.default)();
   app2.set("trust proxy", 1);
@@ -4752,6 +4763,16 @@ function createApp() {
   app2.use(import_express13.default.json({ limit: "10mb" }));
   app2.use(import_express13.default.urlencoded({ extended: true, limit: "10mb" }));
   app2.use(correlationIdMiddleware);
+  app2.use((req, _res, next) => {
+    const matchedPath = req.headers["x-matched-path"];
+    if (matchedPath) {
+      req.url = matchedPath;
+    }
+    if (process.env.VERCEL) {
+      triggerBackgroundConnection();
+    }
+    next();
+  });
   app2.get("/", (_req, res) => {
     res.status(200).json({
       name: "TheyPayOnTime API",
@@ -4803,18 +4824,21 @@ function createApp() {
   app2.use(errorHandler);
   return app2;
 }
+var defaultApp = createApp();
+defaultApp.default = defaultApp;
+defaultApp.createApp = createApp;
 
 // src/serverless.ts
 var baseApp = createApp();
 var app = (0, import_express14.default)();
-var isConnecting = false;
-function triggerBackgroundConnection() {
-  if (import_mongoose34.default.connection.readyState === 1 || isConnecting) return;
-  isConnecting = true;
+var isConnecting2 = false;
+function triggerBackgroundConnection2() {
+  if (import_mongoose34.default.connection.readyState === 1 || isConnecting2) return;
+  isConnecting2 = true;
   connectDatabase().then(() => {
-    isConnecting = false;
+    isConnecting2 = false;
   }).catch((error) => {
-    isConnecting = false;
+    isConnecting2 = false;
     logger.warn({ error: error?.message || error }, "Background MongoDB connection attempt failed");
   });
 }
@@ -4827,7 +4851,7 @@ app.use((req, _res, next) => {
   } else if (req.url.startsWith("/api/index/")) {
     req.url = req.url.replace("/api/index", "");
   }
-  triggerBackgroundConnection();
+  triggerBackgroundConnection2();
   next();
 });
 app.use("/api/v1", async (_req, res, next) => {
