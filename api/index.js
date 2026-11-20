@@ -27,12 +27,12 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// api/index.ts
-var index_exports = {};
-__export(index_exports, {
-  default: () => index_default
+// src/serverless.ts
+var serverless_exports = {};
+__export(serverless_exports, {
+  default: () => serverless_default
 });
-module.exports = __toCommonJS(index_exports);
+module.exports = __toCommonJS(serverless_exports);
 var import_express14 = __toESM(require("express"));
 
 // src/app.ts
@@ -4800,7 +4800,7 @@ function createApp() {
   return app2;
 }
 
-// api/index.ts
+// src/serverless.ts
 var baseApp = createApp();
 var app = (0, import_express14.default)();
 app.use(async (_req, _res, next) => {
@@ -4820,5 +4820,5 @@ app.use((req, _res, next) => {
   next();
 });
 app.use(baseApp);
-var index_default = app;
+var serverless_default = app;
 module.exports = app; module.exports.default = app;

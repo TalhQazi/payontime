@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && esbuild api/index.ts --bundle --platform=node --packages=external --format=cjs --footer:js=\"module.exports = app; module.exports.default = app;\" --outfile=api/index.js",
+    "build": "tsc && esbuild src/serverless.ts --bundle --platform=node --packages=external --format=cjs --footer:js=\"module.exports = app; module.exports.default = app;\" --outfile=api/index.js",
     "start": "node dist/server.js",
     "test": "jest --runInBand --detectOpenHandles --forceExit",
     "test:coverage": "jest --coverage --runInBand --detectOpenHandles --forceExit",

@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { createApp } from '../src/app.js';
-import { connectDatabase } from '../src/database/connection.js';
-import { logger } from '../src/utils/logger.js';
+import { createApp } from './app.js';
+import { connectDatabase } from './database/connection.js';
+import { logger } from './utils/logger.js';
 
 const baseApp = createApp();
 const app = express();
