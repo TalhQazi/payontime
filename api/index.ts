@@ -1,19 +1,32 @@
+import express, { Request, Response, NextFunction } from 'express';
 import { createApp } from '../src/app.js';
 import { connectDatabase } from '../src/database/connection.js';
 import { logger } from '../src/utils/logger.js';
 
-let appInstance: any = null;
+const baseApp = createApp();
+const app = express();
 
-export default async function handler(req: any, res: any) {
+// Serverless DB connection middleware: safely connect without throwing unhandled exceptions
+app.use(async (_req: Request, _res: Response, next: NextFunction) => {
   try {
     await connectDatabase();
   } catch (error: any) {
-    logger.error({ error: error?.message || error }, 'MongoDB connection error during serverless request');
+    logger.error({ error: error?.message || error }, 'MongoDB connection error in serverless request');
   }
+  next();
+});
 
-  if (!appInstance) {
-    appInstance = createApp();
+// URL rewrite normalizer: handles /api/index, /api, or rewritten paths
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.url === '/api/index' || req.url === '/api') {
+    req.url = '/';
+  } else if (req.url.startsWith('/api/index/')) {
+    req.url = req.url.replace('/api/index', '');
   }
+  next();
+});
 
-  return appInstance(req, res);
-}
+// Mount the core application
+app.use(baseApp);
+
+export default app;
