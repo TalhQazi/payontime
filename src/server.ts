@@ -3,7 +3,7 @@ import { env } from './config/env.js';
 import { connectDatabase, disconnectDatabase } from './database/connection.js';
 import { logger } from './utils/logger.js';
 
-async function bootstrap() {
+export async function bootstrap() {
   try {
     logger.info('Connecting to MongoDB...');
     await connectDatabase();
@@ -39,10 +39,15 @@ async function bootstrap() {
 
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
+
+    return server;
   } catch (error) {
     logger.fatal({ error }, 'Fatal error during server startup');
     process.exit(1);
   }
 }
 
-bootstrap();
+// In local or traditional containers, run immediately. In serverless (Vercel), entrypoint handles invocations.
+if (!process.env.VERCEL) {
+  bootstrap();
+}

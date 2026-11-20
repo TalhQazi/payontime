@@ -1,6 +1,7 @@
 import express, { Application, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import mongoose from 'mongoose';
 import swaggerUi from 'swagger-ui-express';
 import { env } from './config/env.js';
 import { openApiSpec } from './config/openapi.js';
@@ -25,7 +26,7 @@ import { customerPortalRouter } from './routes/customerPortalRoutes.js';
 export function createApp(): Application {
   const app: Application = express();
 
-  // Trust proxy for rate limiting behind reverse proxies/load balancers
+  // Trust proxy for rate limiting behind reverse proxies/load balancers (e.g. Vercel)
   app.set('trust proxy', 1);
 
   // Security HTTP headers
@@ -61,6 +62,18 @@ export function createApp(): Application {
   // Correlation ID Tracking
   app.use(correlationIdMiddleware);
 
+  // Root welcome endpoint
+  app.get('/', (_req: Request, res: Response) => {
+    res.status(200).json({
+      name: 'TheyPayOnTime API',
+      status: 'ONLINE',
+      version: '1.0.0',
+      documentation: '/api-docs',
+      health: '/health',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // Global Rate Limiting
   app.use('/api/', globalRateLimiter);
 
@@ -72,11 +85,19 @@ export function createApp(): Application {
 
   // Health and Readiness Check
   app.get('/health', (_req: Request, res: Response) => {
+    const dbState = mongoose.connection.readyState;
+    const dbStatusMap: Record<number, string> = {
+      0: 'DISCONNECTED',
+      1: 'CONNECTED',
+      2: 'CONNECTING',
+      3: 'DISCONNECTING',
+    };
     res.status(200).json({
       status: 'UP',
       timestamp: new Date().toISOString(),
       service: 'TheyPayOnTime-Backend',
       version: '1.0.0',
+      database: dbStatusMap[dbState] || 'UNKNOWN',
       complianceGate: {
         liveConsumerReportingEnabled: env.ENABLE_LIVE_CONSUMER_REPORTING,
       },

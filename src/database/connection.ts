@@ -6,6 +6,24 @@ let isConnected = false;
 let supportsTransactions = false;
 
 export async function connectDatabase(uri?: string): Promise<typeof mongoose> {
+  // If already connected, reuse existing connection (crucial for serverless warm starts)
+  if (mongoose.connection.readyState === 1) {
+    isConnected = true;
+    return mongoose;
+  }
+
+  // If currently connecting, await completion
+  if (mongoose.connection.readyState === 2) {
+    await new Promise((resolve) => {
+      mongoose.connection.once('connected', resolve);
+      setTimeout(resolve, 3000);
+    });
+    if ((mongoose.connection.readyState as number) === 1) {
+      isConnected = true;
+      return mongoose;
+    }
+  }
+
   const connectionUri = uri || env.MONGODB_URI;
   try {
     const conn = await mongoose.connect(connectionUri, {
@@ -48,7 +66,6 @@ export async function withTransaction<T>(
 ): Promise<T> {
   if (!hasTransactionSupport()) {
     // Graceful fallback for non-replica set local dev environments while keeping operations consistent
-    // Pass a dummy/null session or run directly
     const session = await mongoose.startSession();
     try {
       return await fn(session);
